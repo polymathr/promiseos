@@ -103,7 +103,9 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
   .enter { animation: enter 360ms var(--ease-out) both; }
   .enter-delayed { animation: enter 430ms var(--ease-out) 70ms both; }
   .enter-late { animation: enter 470ms var(--ease-out) 120ms both; }
+  .confirmation-feedback { animation: confirmation-feedback 460ms var(--ease-out) both; }
   @keyframes enter { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes confirmation-feedback { 0% { opacity: 0; transform: translateY(7px) scale(0.97); } 62% { opacity: 1; transform: translateY(0) scale(1.015); } 100% { opacity: 1; transform: translateY(0) scale(1); } }
 }
 
 @media (prefers-reduced-motion: reduce) {

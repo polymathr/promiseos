@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc";
 import {
   Bell,
   BellRing,
+  CalendarDays,
   Check,
   CheckCheck,
   ChevronRight,
@@ -178,7 +179,7 @@ function Avatar({ name, tone = "teal" }: { name: string; tone?: "teal" | "clay" 
   return <span className={`inline-grid h-8 w-8 shrink-0 place-items-center rounded-full text-[11px] font-extrabold ${tones[tone]}`}>{name.split(" ").map(part => part[0]).join("").slice(0, 2)}</span>;
 }
 
-function PromiseCard({ item, onOpen }: { item: PromiseItem; onOpen: () => void }) {
+function PromiseCard({ item, onOpen, onExport }: { item: PromiseItem; onOpen: () => void; onExport: () => void }) {
   return (
     <button onClick={onOpen} className="promise-card hairline w-full rounded-2xl border bg-white p-4 text-left shadow-[0_4px_14px_rgba(30,42,50,0.035)] focus-visible:outline-none">
       <div className="flex items-start justify-between gap-3">
@@ -193,7 +194,7 @@ function PromiseCard({ item, onOpen }: { item: PromiseItem; onOpen: () => void }
       </div>
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-[#edf0ee] pt-3 text-xs">
         <span className="inline-flex items-center gap-1.5 font-bold text-[#66737b]"><Clock3 className="h-3.5 w-3.5" />{item.dueLabel}</span>
-        <span className="font-bold text-[#1f5558]">Open <ChevronRight className="inline h-3.5 w-3.5" /></span>
+        <span className="flex items-center gap-2"><button onClick={event => { event.stopPropagation(); onExport(); }} className="pressable grid h-7 w-7 place-items-center rounded-lg text-[#526a6b] hover:bg-[#edf3f0] hover:text-[#1f5558]" aria-label={`Add ${item.title} to calendar`} title="Add to calendar"><CalendarDays className="h-3.5 w-3.5" /></button><span className="font-bold text-[#1f5558]">Open <ChevronRight className="inline h-3.5 w-3.5" /></span></span>
       </div>
     </button>
   );
@@ -223,6 +224,7 @@ export default function Home() {
   const [composerOpen, setComposerOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [noticeEnabled, setNoticeEnabled] = useState(false);
+  const [confirmationFeedback, setConfirmationFeedback] = useState(false);
   const [filter, setFilter] = useState("");
   const selected = selectedId === null ? undefined : promises.find(item => item.id === selectedId);
   const activePage = location === "/" ? "Today" : navItems.find(item => item.href === location)?.label ?? "Today";
@@ -238,6 +240,8 @@ export default function Home() {
     if (!selected) return;
     if (response === "accepted") {
       updatePromise(selected.id, { status: "active", responsibility: "Shared" }, { label: "New plan accepted", by: "You", at: "Just now", detail: "Friday at 11:00 AM works for you.", tone: "primary" });
+      setConfirmationFeedback(true);
+      window.setTimeout(() => setConfirmationFeedback(false), 1800);
       toast.success("The new plan is active for both of you.");
     }
     if (response === "counterproposed") {
@@ -321,6 +325,44 @@ export default function Home() {
     setMobileOpen(false);
   };
 
+  const exportPromiseToCalendar = (item: PromiseItem) => {
+    if (!item.due) {
+      toast.message("Add a due date before exporting this promise to your calendar.");
+      return;
+    }
+    const escapeIcsText = (value: string) => value.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+    const formatIcsDate = (value: Date) => value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    const start = new Date(`${item.due}T12:00:00`);
+    const end = new Date(start.getTime() + 30 * 60 * 1000);
+    const description = `PromiseOS shared commitment\\nPromisor: ${item.promisor}\\nRecipient: ${item.recipient}\\nCompletion: ${item.completion}\\nContext: ${item.context}`;
+    const calendar = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//PromiseOS//Private Commitment Export//EN",
+      "CALSCALE:GREGORIAN",
+      "BEGIN:VEVENT",
+      `UID:promiseos-${item.id}-${Date.now()}@local`,
+      `DTSTAMP:${formatIcsDate(new Date())}`,
+      `DTSTART:${formatIcsDate(start)}`,
+      `DTEND:${formatIcsDate(end)}`,
+      `SUMMARY:${escapeIcsText(`Promise: ${item.title}`)}`,
+      `DESCRIPTION:${escapeIcsText(description)}`,
+      "STATUS:CONFIRMED",
+      "END:VEVENT",
+      "END:VCALENDAR",
+    ].join("\r\n");
+    const blob = new Blob([calendar], { type: "text/calendar;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${item.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "promise"}.ics`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    URL.revokeObjectURL(url);
+    toast.success("Calendar file downloaded. Choose your calendar to add this promise.");
+  };
+
   const saveReminderPreference = (key: "dueDateReminders" | "invitationReminders" | "emailSummaries", value: boolean) => {
     if (!isAuthenticated) {
       toast.message("Sign in to keep reminder preferences across your devices.");
@@ -371,7 +413,7 @@ export default function Home() {
             <div><h2 className="text-lg font-extrabold tracking-[-0.025em]">Upcoming commitments</h2><p className="mt-1 text-sm text-[#66737b]">The agreements already in motion.</p></div>
             <button onClick={() => navigate("/promises")} className="text-sm font-extrabold text-[#1f5558] hover:underline">See all promises</button>
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">{upcoming.slice(0, 4).map(item => <PromiseCard key={item.id} item={item} onOpen={() => setSelectedId(item.id)} />)}</div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">{upcoming.slice(0, 4).map(item => <PromiseCard key={item.id} item={item} onOpen={() => setSelectedId(item.id)} onExport={() => exportPromiseToCalendar(item)} />)}</div>
           {!upcoming.length && <div className="mt-4"><EmptyState onCreate={() => setComposerOpen(true)} /></div>}
         </div>
       </section>
@@ -400,7 +442,7 @@ export default function Home() {
     <section className="max-w-5xl">
       <div className="flex flex-wrap items-end justify-between gap-4"><div><p className="text-xs font-extrabold uppercase tracking-[0.14em] text-[#66737b]">Shared memory</p><h1 className="mt-2 text-3xl font-extrabold tracking-[-0.045em]">Promises</h1><p className="mt-2 text-sm text-[#66737b]">The current agreement is always clear. Changes are always visible.</p></div><Button onClick={() => setComposerOpen(true)} className="pressable rounded-xl bg-[#1f5558] font-extrabold text-white hover:bg-[#18484b]"><Plus className="mr-1.5 h-4 w-4" />New promise</Button></div>
       <div className="mt-7 flex items-center gap-2 rounded-xl border bg-white px-3.5 py-2.5"><Search className="h-4 w-4 text-[#66737b]" /><Input value={filter} onChange={event => setFilter(event.target.value)} className="h-auto border-0 p-0 text-sm shadow-none focus-visible:ring-0" placeholder="Search promises or people" aria-label="Search promises or people" /></div>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">{visiblePromises.map(item => <PromiseCard key={item.id} item={item} onOpen={() => setSelectedId(item.id)} />)}</div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">{visiblePromises.map(item => <PromiseCard key={item.id} item={item} onOpen={() => setSelectedId(item.id)} onExport={() => exportPromiseToCalendar(item)} />)}</div>
       {!visiblePromises.length && <div className="mt-4"><EmptyState onCreate={() => setComposerOpen(true)} /></div>}
     </section>
   );
@@ -473,6 +515,8 @@ export default function Home() {
             <div className="hidden min-w-0 items-center gap-2 lg:flex"><span className="text-sm font-bold text-[#66737b]">{activePage}</span><ChevronRight className="h-4 w-4 text-[#a6b1b2]" /><span className="text-sm font-extrabold text-[#1e2a32]">Personal workspace</span></div>
             <div className="ml-auto flex items-center gap-2">{isAuthenticated ? <span className="hidden rounded-full border border-[#dce5e2] bg-white px-3 py-1.5 text-[11px] font-extrabold text-[#587072] sm:inline-flex">Synced as {user?.name?.split(" ")[0] || "you"}</span> : <button onClick={() => startLogin()} className="pressable hidden rounded-full border border-[#b9cec8] bg-white px-3 py-1.5 text-[11px] font-extrabold text-[#1f5558] hover:bg-[#f6fbf8] sm:inline-flex">Sign in to sync</button>}<button onClick={requestBrowserNotifications} className="pressable relative grid h-10 w-10 place-items-center rounded-xl border bg-white text-[#526a6b] hover:bg-[#fbfcfb]" aria-label="Manage reminders"><Bell className="h-4 w-4" />{!noticeEnabled && <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-[#b96f5a]" />}</button><button onClick={() => setSelectedId(2)} className="pressable hidden h-10 items-center gap-2 rounded-xl border bg-white px-3 text-xs font-extrabold text-[#426164] hover:bg-[#fbfcfb] sm:flex"><Inbox className="h-4 w-4" />1 waiting</button></div>
           </header>
+
+          {confirmationFeedback && <div className="confirmation-feedback mb-5 flex items-center gap-2 rounded-xl border border-[#c8ddcd] bg-[#e8f0ea] px-4 py-3 text-sm font-extrabold text-[#3f6b50]"><CheckCheck className="h-4 w-4" />You both have the same active plan.</div>}
 
           {activePage === "Today" && renderToday()}
           {activePage === "Promises" && renderPromises()}

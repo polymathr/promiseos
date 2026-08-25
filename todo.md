@@ -14,6 +14,11 @@
 - [x] Run type checks and tests, inspect runtime logs, and fix implementation issues.
 - [x] Verify desktop and mobile layouts visually, confirm accessibility affordances, and refine motion and attention hierarchy.
 - [x] Review this tracker, save the completed project checkpoint, and deliver the working app.
+- [x] Add standards-compliant calendar export for individual promises, including title, due date, participants, completion condition, and a privacy-respecting description.
+- [x] Add a restrained success micro-interaction when a shared promise is accepted or a renegotiation is confirmed, with reduced-motion support.
+- [ ] Verify the GitHub connection, create a PromiseOS repository under the user’s available account, and record the synchronization workflow for future changes.
+- [ ] Test and visually verify calendar export and confirmation feedback on desktop and mobile.
+- [ ] Save a new checkpoint and deliver the enhanced PromiseOS app.
 
 ## Known bugs
 
