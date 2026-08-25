@@ -8,6 +8,7 @@ const dbMocks = vi.hoisted(() => ({
   exportPromisesForUser: vi.fn(),
   getGuestInvite: vi.fn(),
   getPromiseDetailForUser: vi.fn(),
+  getRelationshipSummariesForUser: vi.fn(),
   getReliabilitySummaryForUser: vi.fn(),
   getReminderPreferencesForUser: vi.fn(),
   listPromisesForUser: vi.fn(),
@@ -73,6 +74,20 @@ describe("PromiseOS protected procedures", () => {
     });
   });
 
+  it("returns the authenticated user's live promise detail with participant identity fields", async () => {
+    dbMocks.getPromiseDetailForUser.mockResolvedValueOnce({
+      promise: { id: 13, title: "Share access" },
+      participants: [{ id: 1, name: "Maya", email: "maya@example.com", role: "recipient", confirmationStatus: "pending" }],
+      events: [],
+      amendments: [],
+    });
+    const caller = appRouter.createCaller(context());
+
+    const result = await caller.promise.get({ promiseId: 13 });
+    expect(dbMocks.getPromiseDetailForUser).toHaveBeenCalledWith(13, 42);
+    expect(result.participants[0]).toMatchObject({ name: "Maya", confirmationStatus: "pending" });
+  });
+
   it("keeps reliability history private to the authenticated relationship query", async () => {
     dbMocks.getReliabilitySummaryForUser.mockResolvedValueOnce({ completed: 3, renegotiated: 1, blocked: 0, open: 2, acknowledged: 1 });
     const caller = appRouter.createCaller(context());
@@ -81,6 +96,15 @@ describe("PromiseOS protected procedures", () => {
 
     expect(dbMocks.getReliabilitySummaryForUser).toHaveBeenCalledWith(42, 17);
     expect(result).toEqual({ completed: 3, renegotiated: 1, blocked: 0, open: 2, acknowledged: 1 });
+  });
+
+  it("returns private relationship groups only for the authenticated user", async () => {
+    const summary = [{ label: "maya@example.com", open: 1, completed: 2, renegotiated: 0, blocked: 0, acknowledged: 1 }];
+    dbMocks.getRelationshipSummariesForUser.mockResolvedValueOnce(summary);
+    const caller = appRouter.createCaller(context());
+
+    await expect(caller.promise.relationships()).resolves.toEqual(summary);
+    expect(dbMocks.getRelationshipSummariesForUser).toHaveBeenCalledWith(42);
   });
 
   it("updates only the calling user's reminder preferences", async () => {

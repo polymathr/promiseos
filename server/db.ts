@@ -111,7 +111,18 @@ export async function getPromiseDetailForUser(promiseId: number, userId: number)
   if (!access[0]) return undefined;
   const promise = (await db.select().from(promises).where(eq(promises.id, promiseId)).limit(1))[0];
   if (!promise) return undefined;
-  const participants = await db.select().from(promiseParticipants).where(eq(promiseParticipants.promiseId, promiseId));
+  const participants = await db.select({
+    id: promiseParticipants.id,
+    promiseId: promiseParticipants.promiseId,
+    userId: promiseParticipants.userId,
+    inviteEmail: promiseParticipants.inviteEmail,
+    role: promiseParticipants.role,
+    confirmationStatus: promiseParticipants.confirmationStatus,
+    createdAt: promiseParticipants.createdAt,
+    updatedAt: promiseParticipants.updatedAt,
+    name: users.name,
+    email: users.email,
+  }).from(promiseParticipants).leftJoin(users, eq(promiseParticipants.userId, users.id)).where(eq(promiseParticipants.promiseId, promiseId));
   const events = await db.select().from(promiseEvents).where(eq(promiseEvents.promiseId, promiseId)).orderBy(desc(promiseEvents.createdAt));
   const amendments = await db.select().from(promiseAmendments).where(eq(promiseAmendments.promiseId, promiseId)).orderBy(desc(promiseAmendments.createdAt));
   return { promise, participants, events, amendments };
@@ -231,6 +242,34 @@ export async function getReliabilitySummaryForUser(userId: number, otherUserId?:
     open: get("active") + get("at_risk") + get("proposed"),
     acknowledged: get("acknowledged"),
   };
+}
+
+export async function getRelationshipSummariesForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const mine = await db.select({ promiseId: promiseParticipants.promiseId }).from(promiseParticipants).where(eq(promiseParticipants.userId, userId));
+  const ids = mine.map(row => row.promiseId);
+  if (!ids.length) return [];
+  const partnerRows = (await db.select().from(promiseParticipants).where(inArray(promiseParticipants.promiseId, ids))).filter(row => row.userId !== userId);
+  const promiseRows = await db.select({ id: promises.id, status: promises.status }).from(promises).where(inArray(promises.id, ids));
+  const userIds = partnerRows.map(row => row.userId).filter((id): id is number => Boolean(id));
+  const people = userIds.length ? await db.select({ id: users.id, name: users.name, email: users.email }).from(users).where(inArray(users.id, userIds)) : [];
+  const labels = new Map(people.map(person => [person.id, person.name || person.email || "Private participant"]));
+  const statusByPromise = new Map(promiseRows.map(row => [row.id, row.status]));
+  const groups = new Map<string, { label: string; open: number; completed: number; renegotiated: number; blocked: number; acknowledged: number }>();
+  partnerRows.forEach(row => {
+    const key = row.userId ? `user-${row.userId}` : `email-${row.inviteEmail ?? row.id}`;
+    const label = row.userId ? labels.get(row.userId) ?? "Private participant" : row.inviteEmail ?? "Pending invitation";
+    const current = groups.get(key) ?? { label, open: 0, completed: 0, renegotiated: 0, blocked: 0, acknowledged: 0 };
+    const status = statusByPromise.get(row.promiseId);
+    if (status === "complete") current.completed += 1;
+    else if (status === "acknowledged") current.acknowledged += 1;
+    else if (status === "renegotiated" || status === "renegotiation_proposed") current.renegotiated += 1;
+    else if (status === "blocked") current.blocked += 1;
+    else if (status && !["declined", "archived", "disputed"].includes(status)) current.open += 1;
+    groups.set(key, current);
+  });
+  return Array.from(groups.values());
 }
 
 export async function getReminderPreferencesForUser(userId: number) {

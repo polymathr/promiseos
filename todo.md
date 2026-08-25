@@ -27,6 +27,16 @@
 - [x] Build a public token-based guest invitation confirmation page that collects a response before requesting sign-in.
 - [x] Build the specified non-AI, no-gradient welcome onboarding page with the exact headline, CTAs, and dot-to-check visual motif.
 - [x] Save the pasted-content implementation checkpoint, synchronize it to GitHub, and deliver the update.
+- [x] Replace Today and Promises mock data with authenticated live promise queries, prioritization, client-side search, and the requested empty state.
+- [x] Render live promise details, participants, events, amendments, and server-persisted response actions from the route parameter.
+- [x] Replace People mock cards with private live reliability summaries and relationship-aware empty states.
+- [x] Bind all reminder preferences, browser permission, data controls, and sign-out to authenticated tRPC operations in Settings.
+- [x] Add responsive AppShell sign-in controls and accessible icon-plus-label status pills using the requested semantic palette.
+- [x] Remove the now-unused Home page, verify checks and tests, then checkpoint and synchronize this live-data update to GitHub.
+
+## Live-data follow-up
+
+- [x] Include participant identity and confirmation data in the live promise detail response, and verify the loaded detail happy path against an existing record.
 
 ## Known bugs
 

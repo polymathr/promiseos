@@ -5,6 +5,7 @@ import {
   createPromiseForUser,
   exportPromisesForUser,
   getGuestInvite,
+  getRelationshipSummariesForUser,
   getPromiseDetailForUser,
   getReliabilitySummaryForUser,
   getReminderPreferencesForUser,
@@ -48,6 +49,7 @@ export const promiseRouter = router({
   }),
   guestRespond: publicProcedure.input(z.object({ token: z.string().min(12).max(96), response: z.enum(["accepted", "counterproposed", "declined"]), detail: z.string().trim().max(3000).optional() })).mutation(async ({ input }) => respondToGuestInvite(input)),
   reliability: protectedProcedure.input(z.object({ otherUserId: z.number().int().positive().optional() })).query(async ({ ctx, input }) => getReliabilitySummaryForUser(ctx.user.id, input.otherUserId)),
+  relationships: protectedProcedure.query(async ({ ctx }) => getRelationshipSummariesForUser(ctx.user.id)),
   reminderPreferences: protectedProcedure.query(async ({ ctx }) => getReminderPreferencesForUser(ctx.user.id)),
   updateReminderPreferences: protectedProcedure.input(z.object({
     invitationReminders: z.boolean().optional(),
