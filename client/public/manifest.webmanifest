@@ -1,0 +1,9 @@
+{
+  "name": "PromiseOS",
+  "short_name": "PromiseOS",
+  "description": "A private commitment workspace for clear, shared promises.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F7F7F4",
+  "theme_color": "#1F5558"
+}

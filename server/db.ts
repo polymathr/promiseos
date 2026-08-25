@@ -1,11 +1,18 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import {
+  InsertUser,
+  promiseAmendments,
+  promiseEvents,
+  promiseParticipants,
+  promises,
+  reminderPreferences,
+  users,
+} from "../drizzle/schema";
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -19,74 +26,164 @@ export async function getDb() {
 }
 
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
-
+  if (!user.openId) throw new Error("User openId is required for upsert");
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot upsert user: database not available");
-    return;
-  }
-
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
-
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
+  if (!db) return;
+  const values: InsertUser = { openId: user.openId, lastSignedIn: user.lastSignedIn ?? new Date() };
+  const updateSet: Record<string, unknown> = { lastSignedIn: values.lastSignedIn };
+  (["name", "email", "loginMethod"] as const).forEach(field => {
+    if (user[field] !== undefined) {
+      values[field] = user[field] ?? null;
+      updateSet[field] = user[field] ?? null;
     }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
-
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
-  }
+  });
+  values.role = user.role ?? (user.openId === ENV.ownerOpenId ? "admin" : "user");
+  updateSet.role = values.role;
+  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
 }
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
-  const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
+  if (!db) return undefined;
+  return (await db.select().from(users).where(eq(users.openId, openId)).limit(1))[0];
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function createPromiseForUser(input: {
+  userId: number;
+  title: string;
+  dueAt?: Date;
+  completionCondition?: string;
+  context?: string;
+  recipientUserId?: number;
+  recipientEmail?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const created = await db.insert(promises).values({
+    creatorId: input.userId,
+    title: input.title,
+    dueAt: input.dueAt,
+    completionCondition: input.completionCondition,
+    context: input.context,
+    status: input.recipientUserId || input.recipientEmail ? "proposed" : "active",
+  });
+  const promiseId = Number(created[0].insertId);
+  await db.insert(promiseParticipants).values({
+    promiseId,
+    userId: input.userId,
+    role: "promisor",
+    confirmationStatus: "accepted",
+  });
+  if (input.recipientUserId || input.recipientEmail) {
+    await db.insert(promiseParticipants).values({
+      promiseId,
+      userId: input.recipientUserId,
+      inviteEmail: input.recipientEmail,
+      role: "recipient",
+      confirmationStatus: "pending",
+    });
+  }
+  await db.insert(promiseEvents).values({ promiseId, actorUserId: input.userId, type: "created", detail: "A promise was created." });
+  if (input.recipientUserId || input.recipientEmail) {
+    await db.insert(promiseEvents).values({ promiseId, actorUserId: input.userId, type: "invited", detail: "A recipient was invited to confirm the agreement." });
+  }
+  return promiseId;
+}
+
+export async function listPromisesForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  return db
+    .select({ promise: promises, participant: promiseParticipants })
+    .from(promiseParticipants)
+    .innerJoin(promises, eq(promiseParticipants.promiseId, promises.id))
+    .where(eq(promiseParticipants.userId, userId))
+    .orderBy(desc(promises.updatedAt));
+}
+
+export async function getPromiseDetailForUser(promiseId: number, userId: number) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const access = await db.select({ participantId: promiseParticipants.id }).from(promiseParticipants).where(and(eq(promiseParticipants.promiseId, promiseId), eq(promiseParticipants.userId, userId))).limit(1);
+  if (!access[0]) return undefined;
+  const promise = (await db.select().from(promises).where(eq(promises.id, promiseId)).limit(1))[0];
+  if (!promise) return undefined;
+  const participants = await db.select().from(promiseParticipants).where(eq(promiseParticipants.promiseId, promiseId));
+  const events = await db.select().from(promiseEvents).where(eq(promiseEvents.promiseId, promiseId)).orderBy(desc(promiseEvents.createdAt));
+  const amendments = await db.select().from(promiseAmendments).where(eq(promiseAmendments.promiseId, promiseId)).orderBy(desc(promiseAmendments.createdAt));
+  return { promise, participants, events, amendments };
+}
+
+export async function respondToPromiseInvitation(input: {
+  promiseId: number;
+  userId: number;
+  response: "accepted" | "counterproposed" | "declined" | "clarification_requested";
+  detail?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const participant = (await db.select().from(promiseParticipants).where(and(eq(promiseParticipants.promiseId, input.promiseId), eq(promiseParticipants.userId, input.userId))).limit(1))[0];
+  if (!participant || participant.role !== "recipient") throw new Error("Only the invited recipient can respond to this invitation");
+  await db.update(promiseParticipants).set({ confirmationStatus: input.response }).where(eq(promiseParticipants.id, participant.id));
+  const nextStatus = input.response === "accepted" ? "active" : input.response === "counterproposed" ? "renegotiation_proposed" : input.response === "declined" ? "declined" : "proposed";
+  await db.update(promises).set({ status: nextStatus }).where(eq(promises.id, input.promiseId));
+  await db.insert(promiseEvents).values({ promiseId: input.promiseId, actorUserId: input.userId, type: input.response, detail: input.detail });
+}
+
+export async function addPromiseEventForUser(input: {
+  promiseId: number;
+  userId: number;
+  type: "progress_added" | "blocked" | "unblocked" | "marked_complete" | "acknowledged" | "disputed";
+  detail?: string;
+}) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const access = await db.select({ id: promiseParticipants.id }).from(promiseParticipants).where(and(eq(promiseParticipants.promiseId, input.promiseId), eq(promiseParticipants.userId, input.userId))).limit(1);
+  if (!access[0]) throw new Error("You do not have access to this promise");
+  const statusByEvent = { progress_added: undefined, blocked: "blocked", unblocked: "active", marked_complete: "complete", acknowledged: "acknowledged", disputed: "disputed" } as const;
+  const status = statusByEvent[input.type];
+  if (status) await db.update(promises).set({ status }).where(eq(promises.id, input.promiseId));
+  await db.insert(promiseEvents).values({ promiseId: input.promiseId, actorUserId: input.userId, type: input.type, detail: input.detail });
+}
+
+export async function getReliabilitySummaryForUser(userId: number, otherUserId?: number) {
+  const db = await getDb();
+  if (!db) return { completed: 0, renegotiated: 0, blocked: 0, open: 0, acknowledged: 0 };
+  let sharedPromiseIds = (await db.select({ promiseId: promiseParticipants.promiseId }).from(promiseParticipants).where(eq(promiseParticipants.userId, userId))).map(row => row.promiseId);
+  if (otherUserId) {
+    const otherIds = (await db.select({ promiseId: promiseParticipants.promiseId }).from(promiseParticipants).where(eq(promiseParticipants.userId, otherUserId))).map(row => row.promiseId);
+    sharedPromiseIds = sharedPromiseIds.filter(id => otherIds.includes(id));
+  }
+  if (!sharedPromiseIds.length) return { completed: 0, renegotiated: 0, blocked: 0, open: 0, acknowledged: 0 };
+  const rows = await db.select({ status: promises.status, count: sql<number>`count(*)` }).from(promises).where(inArray(promises.id, sharedPromiseIds)).groupBy(promises.status);
+  const get = (status: string) => Number(rows.find(row => row.status === status)?.count ?? 0);
+  return {
+    completed: get("complete"),
+    renegotiated: get("renegotiated") + get("renegotiation_proposed"),
+    blocked: get("blocked"),
+    open: get("active") + get("at_risk") + get("proposed"),
+    acknowledged: get("acknowledged"),
+  };
+}
+
+export async function getReminderPreferencesForUser(userId: number) {
+  const db = await getDb();
+  const defaults = {
+    userId,
+    invitationReminders: true,
+    dueDateReminders: true,
+    renegotiationReminders: true,
+    completionReminders: true,
+    browserNotifications: false,
+    emailSummaries: false,
+  };
+  if (!db) return defaults;
+  return (await db.select().from(reminderPreferences).where(eq(reminderPreferences.userId, userId)).limit(1))[0] ?? defaults;
+}
+
+export async function updateReminderPreferencesForUser(userId: number, values: Partial<typeof reminderPreferences.$inferInsert>) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  await db.insert(reminderPreferences).values({ userId, ...values }).onDuplicateKeyUpdate({ set: values });
+  return getReminderPreferencesForUser(userId);
+}
