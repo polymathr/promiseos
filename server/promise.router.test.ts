@@ -34,7 +34,9 @@ function context(): TrpcContext {
       lastSignedIn: new Date(),
     },
     req: { protocol: "https", headers: {} } as TrpcContext["req"],
-    res: {} as TrpcContext["res"],
+    res: {
+      clearCookie: () => undefined,
+    } as TrpcContext["res"],
   };
 }
 
@@ -109,5 +111,13 @@ describe("PromiseOS protected procedures", () => {
     await expect(caller.promise.guestPreview({ token: "valid-guest-invitation-token-123" })).resolves.toEqual({ promise: { id: 77, title: "Share access" }, confirmationStatus: "pending" });
     await expect(caller.promise.guestRespond({ token: "valid-guest-invitation-token-123", response: "accepted" })).resolves.toEqual({ promiseId: 77, status: "active" });
     expect(dbMocks.respondToGuestInvite).toHaveBeenCalledWith({ token: "valid-guest-invitation-token-123", response: "accepted" });
+  });
+
+  it("passes the authenticated account to the privacy deletion procedure", async () => {
+    dbMocks.deleteAccountForUser.mockResolvedValueOnce(undefined);
+    const caller = appRouter.createCaller(context());
+
+    await expect(caller.account.delete()).resolves.toEqual({ success: true });
+    expect(dbMocks.deleteAccountForUser).toHaveBeenCalledWith(42);
   });
 });
