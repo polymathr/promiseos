@@ -3,14 +3,17 @@ import { z } from "zod";
 import {
   addPromiseEventForUser,
   createPromiseForUser,
+  exportPromisesForUser,
+  getGuestInvite,
   getPromiseDetailForUser,
   getReliabilitySummaryForUser,
   getReminderPreferencesForUser,
   listPromisesForUser,
   respondToPromiseInvitation,
+  respondToGuestInvite,
   updateReminderPreferencesForUser,
 } from "../db";
-import { protectedProcedure, router } from "../_core/trpc";
+import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
 
 const promiseId = z.object({ promiseId: z.number().int().positive() });
 
@@ -34,9 +37,16 @@ export const promiseRouter = router({
     detail: z.string().trim().max(3000).optional(),
   })).mutation(async ({ ctx, input }) => respondToPromiseInvitation({ ...input, userId: ctx.user.id })),
   addEvent: protectedProcedure.input(promiseId.extend({
-    type: z.enum(["progress_added", "blocked", "unblocked", "marked_complete", "acknowledged", "disputed"]),
+    type: z.enum(["progress_added", "at_risk", "blocked", "renegotiation_proposed", "renegotiation_accepted", "marked_complete", "declined", "disputed", "acknowledged", "archived"]),
     detail: z.string().trim().max(3000).optional(),
   })).mutation(async ({ ctx, input }) => addPromiseEventForUser({ ...input, userId: ctx.user.id })),
+  export: protectedProcedure.query(async ({ ctx }) => exportPromisesForUser(ctx.user.id)),
+  guestPreview: publicProcedure.input(z.object({ token: z.string().min(12).max(96) })).query(async ({ input }) => {
+    const invite = await getGuestInvite(input.token);
+    if (!invite) throw new TRPCError({ code: "NOT_FOUND", message: "Invitation not found" });
+    return { promise: invite.promise, confirmationStatus: invite.participant.confirmationStatus };
+  }),
+  guestRespond: publicProcedure.input(z.object({ token: z.string().min(12).max(96), response: z.enum(["accepted", "counterproposed", "declined"]), detail: z.string().trim().max(3000).optional() })).mutation(async ({ input }) => respondToGuestInvite(input)),
   reliability: protectedProcedure.input(z.object({ otherUserId: z.number().int().positive().optional() })).query(async ({ ctx, input }) => getReliabilitySummaryForUser(ctx.user.id, input.otherUserId)),
   reminderPreferences: protectedProcedure.query(async ({ ctx }) => getReminderPreferencesForUser(ctx.user.id)),
   updateReminderPreferences: protectedProcedure.input(z.object({

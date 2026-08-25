@@ -87,6 +87,7 @@ export const promiseEvents = mysqlTable("promise_events", {
     "clarification_requested",
     "activated",
     "progress_added",
+    "at_risk",
     "blocked",
     "unblocked",
     "renegotiation_proposed",

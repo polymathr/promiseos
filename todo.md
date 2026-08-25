@@ -19,6 +19,14 @@
 - [x] Verify the GitHub connection, create a private PromiseOS repository under the user’s available account, and configure the `github` remote for future synchronization.
 - [x] Test and visually verify calendar export and confirmation feedback on desktop and mobile.
 - [x] Save a new checkpoint and deliver the enhanced PromiseOS app.
+- [ ] Review the newly provided content, extract its concrete PromiseOS requirements, and implement the approved changes with validation and GitHub synchronization.
+- [x] Enforce legal PromiseOS state transitions in server-side event handling and add tests for rejected illegal paths.
+- [x] Split the monolithic Home experience into route-level Today, Promise Detail, Capture, People, and Settings components while preserving responsive four-item navigation.
+- [x] Remove unused AI chat and map scaffolding, remove associated unused dependencies, and regenerate the verified lockfile.
+- [x] Add authenticated promise JSON export and privacy-preserving account deletion procedures with appropriate promise cleanup or anonymization rules.
+- [x] Build a public token-based guest invitation confirmation page that collects a response before requesting sign-in.
+- [x] Build the specified non-AI, no-gradient welcome onboarding page with the exact headline, CTAs, and dot-to-check visual motif.
+- [ ] Save the pasted-content implementation checkpoint, synchronize it to GitHub, and deliver the update.
 
 ## Known bugs
 

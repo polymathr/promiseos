@@ -1,0 +1,1 @@
+ALTER TABLE `promise_events` MODIFY COLUMN `type` enum('created','invited','accepted','counterproposed','declined','clarification_requested','activated','progress_added','at_risk','blocked','unblocked','renegotiation_proposed','renegotiation_accepted','renegotiation_declined','marked_complete','acknowledged','disputed','archived') NOT NULL;

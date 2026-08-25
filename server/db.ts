@@ -1,5 +1,6 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { nanoid } from "nanoid";
 import {
   InsertUser,
   promiseAmendments,
@@ -10,6 +11,7 @@ import {
   users,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { nextPromiseState, PromiseEventAction, PromiseState } from "./promiseState";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -79,6 +81,7 @@ export async function createPromiseForUser(input: {
       promiseId,
       userId: input.recipientUserId,
       inviteEmail: input.recipientEmail,
+      inviteToken: nanoid(32),
       role: "recipient",
       confirmationStatus: "pending",
     });
@@ -133,17 +136,81 @@ export async function respondToPromiseInvitation(input: {
 export async function addPromiseEventForUser(input: {
   promiseId: number;
   userId: number;
-  type: "progress_added" | "blocked" | "unblocked" | "marked_complete" | "acknowledged" | "disputed";
+  type: PromiseEventAction;
   detail?: string;
 }) {
   const db = await getDb();
   if (!db) throw new Error("Database is unavailable");
   const access = await db.select({ id: promiseParticipants.id }).from(promiseParticipants).where(and(eq(promiseParticipants.promiseId, input.promiseId), eq(promiseParticipants.userId, input.userId))).limit(1);
   if (!access[0]) throw new Error("You do not have access to this promise");
-  const statusByEvent = { progress_added: undefined, blocked: "blocked", unblocked: "active", marked_complete: "complete", acknowledged: "acknowledged", disputed: "disputed" } as const;
-  const status = statusByEvent[input.type];
+  const currentPromise = (await db.select({ status: promises.status }).from(promises).where(eq(promises.id, input.promiseId)).limit(1))[0];
+  if (!currentPromise) throw new Error("Promise not found");
+  const status = nextPromiseState(currentPromise.status as PromiseState, input.type);
   if (status) await db.update(promises).set({ status }).where(eq(promises.id, input.promiseId));
   await db.insert(promiseEvents).values({ promiseId: input.promiseId, actorUserId: input.userId, type: input.type, detail: input.detail });
+}
+
+export async function exportPromisesForUser(userId: number) {
+  const db = await getDb();
+  if (!db) return [];
+  const rows = await listPromisesForUser(userId);
+  return Promise.all(rows.map(async ({ promise }) => ({
+    promise,
+    events: await db.select().from(promiseEvents).where(eq(promiseEvents.promiseId, promise.id)).orderBy(desc(promiseEvents.createdAt)),
+  })));
+}
+
+export async function getGuestInvite(token: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const row = (await db.select({ participant: promiseParticipants, promise: promises }).from(promiseParticipants).innerJoin(promises, eq(promiseParticipants.promiseId, promises.id)).where(eq(promiseParticipants.inviteToken, token)).limit(1))[0];
+  if (!row) return undefined;
+  return row;
+}
+
+export async function respondToGuestInvite(input: { token: string; response: "accepted" | "counterproposed" | "declined"; detail?: string }) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const invite = await getGuestInvite(input.token);
+  if (!invite) throw new Error("Invitation not found");
+  if (invite.participant.confirmationStatus !== "pending") throw new Error("This invitation has already received a response");
+  const status = input.response === "accepted" ? "active" : input.response === "counterproposed" ? "renegotiation_proposed" : "declined";
+  await db.update(promiseParticipants).set({ confirmationStatus: input.response }).where(eq(promiseParticipants.id, invite.participant.id));
+  await db.update(promises).set({ status }).where(eq(promises.id, invite.promise.id));
+  await db.insert(promiseEvents).values({ promiseId: invite.promise.id, type: input.response, detail: input.detail ?? "Guest responded before signing in." });
+  return { promiseId: invite.promise.id, status };
+}
+
+async function getDeletedAccountUserId() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const existing = (await db.select().from(users).where(eq(users.openId, "promiseos-deleted-account")).limit(1))[0];
+  if (existing) return existing.id;
+  const created = await db.insert(users).values({ openId: "promiseos-deleted-account", name: "Deleted participant", loginMethod: "system", role: "user" });
+  return Number(created[0].insertId);
+}
+
+export async function deleteAccountForUser(userId: number) {
+  const db = await getDb();
+  if (!db) throw new Error("Database is unavailable");
+  const participantRows = await db.select().from(promiseParticipants).where(eq(promiseParticipants.userId, userId));
+  const deletedAccountUserId = await getDeletedAccountUserId();
+  for (const participant of participantRows) {
+    const allParticipants = await db.select().from(promiseParticipants).where(eq(promiseParticipants.promiseId, participant.promiseId));
+    if (allParticipants.length === 1) {
+      await db.delete(promiseEvents).where(eq(promiseEvents.promiseId, participant.promiseId));
+      await db.delete(promiseAmendments).where(eq(promiseAmendments.promiseId, participant.promiseId));
+      await db.delete(promiseParticipants).where(eq(promiseParticipants.promiseId, participant.promiseId));
+      await db.delete(promises).where(eq(promises.id, participant.promiseId));
+    } else {
+      await db.update(promises).set({ creatorId: deletedAccountUserId, context: "A participant deleted their account." }).where(and(eq(promises.id, participant.promiseId), eq(promises.creatorId, userId)));
+      await db.update(promiseEvents).set({ actorUserId: null }).where(and(eq(promiseEvents.promiseId, participant.promiseId), eq(promiseEvents.actorUserId, userId)));
+      await db.update(promiseAmendments).set({ proposedByUserId: deletedAccountUserId }).where(and(eq(promiseAmendments.promiseId, participant.promiseId), eq(promiseAmendments.proposedByUserId, userId)));
+      await db.delete(promiseParticipants).where(eq(promiseParticipants.id, participant.id));
+    }
+  }
+  await db.delete(reminderPreferences).where(eq(reminderPreferences.userId, userId));
+  await db.delete(users).where(eq(users.id, userId));
 }
 
 export async function getReliabilitySummaryForUser(userId: number, otherUserId?: number) {

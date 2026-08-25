@@ -4,11 +4,15 @@ import type { TrpcContext } from "./_core/context";
 const dbMocks = vi.hoisted(() => ({
   addPromiseEventForUser: vi.fn(),
   createPromiseForUser: vi.fn(),
+  deleteAccountForUser: vi.fn(),
+  exportPromisesForUser: vi.fn(),
+  getGuestInvite: vi.fn(),
   getPromiseDetailForUser: vi.fn(),
   getReliabilitySummaryForUser: vi.fn(),
   getReminderPreferencesForUser: vi.fn(),
   listPromisesForUser: vi.fn(),
   respondToPromiseInvitation: vi.fn(),
+  respondToGuestInvite: vi.fn(),
   updateReminderPreferencesForUser: vi.fn(),
 }));
 
@@ -87,5 +91,23 @@ describe("PromiseOS protected procedures", () => {
       browserNotifications: true,
       dueDateReminders: false,
     });
+  });
+
+  it("exports only the authenticated user's private promise data", async () => {
+    dbMocks.exportPromisesForUser.mockResolvedValueOnce([{ promise: { id: 9 }, events: [] }]);
+    const caller = appRouter.createCaller(context());
+
+    await expect(caller.promise.export()).resolves.toEqual([{ promise: { id: 9 }, events: [] }]);
+    expect(dbMocks.exportPromisesForUser).toHaveBeenCalledWith(42);
+  });
+
+  it("loads and records a valid guest invitation without requiring an account", async () => {
+    dbMocks.getGuestInvite.mockResolvedValueOnce({ participant: { confirmationStatus: "pending" }, promise: { id: 77, title: "Share access" } });
+    dbMocks.respondToGuestInvite.mockResolvedValueOnce({ promiseId: 77, status: "active" });
+    const caller = appRouter.createCaller(context());
+
+    await expect(caller.promise.guestPreview({ token: "valid-guest-invitation-token-123" })).resolves.toEqual({ promise: { id: 77, title: "Share access" }, confirmationStatus: "pending" });
+    await expect(caller.promise.guestRespond({ token: "valid-guest-invitation-token-123", response: "accepted" })).resolves.toEqual({ promiseId: 77, status: "active" });
+    expect(dbMocks.respondToGuestInvite).toHaveBeenCalledWith({ token: "valid-guest-invitation-token-123", response: "accepted" });
   });
 });
