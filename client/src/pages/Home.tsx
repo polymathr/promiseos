@@ -4,6 +4,7 @@ import { startLogin } from "@/const";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { buildPromiseCalendar } from "@/lib/calendar";
 import { trpc } from "@/lib/trpc";
 import {
   Bell,
@@ -181,22 +182,24 @@ function Avatar({ name, tone = "teal" }: { name: string; tone?: "teal" | "clay" 
 
 function PromiseCard({ item, onOpen, onExport }: { item: PromiseItem; onOpen: () => void; onExport: () => void }) {
   return (
-    <button onClick={onOpen} className="promise-card hairline w-full rounded-2xl border bg-white p-4 text-left shadow-[0_4px_14px_rgba(30,42,50,0.035)] focus-visible:outline-none">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="truncate text-[15px] font-extrabold tracking-[-0.015em] text-[#1e2a32]">{item.title}</p>
-          <div className="mt-2 flex items-center gap-2 text-xs text-[#66737b]">
-            <Avatar name={item.kind === "outgoing" ? item.recipient : item.promisor} tone={item.kind === "outgoing" ? "clay" : "teal"} />
-            <span className="truncate">{item.kind === "outgoing" ? `With ${item.recipient}` : `From ${item.promisor}`}</span>
+    <article className="promise-card hairline w-full rounded-2xl border bg-white p-4 text-left shadow-[0_4px_14px_rgba(30,42,50,0.035)]">
+      <button onClick={onOpen} className="block w-full text-left focus-visible:outline-none">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="truncate text-[15px] font-extrabold tracking-[-0.015em] text-[#1e2a32]">{item.title}</p>
+            <div className="mt-2 flex items-center gap-2 text-xs text-[#66737b]">
+              <Avatar name={item.kind === "outgoing" ? item.recipient : item.promisor} tone={item.kind === "outgoing" ? "clay" : "teal"} />
+              <span className="truncate">{item.kind === "outgoing" ? `With ${item.recipient}` : `From ${item.promisor}`}</span>
+            </div>
           </div>
+          <StatusPill status={item.status} />
         </div>
-        <StatusPill status={item.status} />
-      </div>
+      </button>
       <div className="mt-4 flex items-center justify-between gap-3 border-t border-[#edf0ee] pt-3 text-xs">
         <span className="inline-flex items-center gap-1.5 font-bold text-[#66737b]"><Clock3 className="h-3.5 w-3.5" />{item.dueLabel}</span>
-        <span className="flex items-center gap-2"><button onClick={event => { event.stopPropagation(); onExport(); }} className="pressable grid h-7 w-7 place-items-center rounded-lg text-[#526a6b] hover:bg-[#edf3f0] hover:text-[#1f5558]" aria-label={`Add ${item.title} to calendar`} title="Add to calendar"><CalendarDays className="h-3.5 w-3.5" /></button><span className="font-bold text-[#1f5558]">Open <ChevronRight className="inline h-3.5 w-3.5" /></span></span>
+        <span className="flex items-center gap-2"><button onClick={onExport} className="pressable grid h-7 w-7 place-items-center rounded-lg text-[#526a6b] hover:bg-[#edf3f0] hover:text-[#1f5558]" aria-label={`Add ${item.title} to calendar`} title="Add to calendar"><CalendarDays className="h-3.5 w-3.5" /></button><button onClick={onOpen} className="pressable rounded-lg px-1 text-xs font-bold text-[#1f5558] hover:bg-[#edf3f0]">Open <ChevronRight className="inline h-3.5 w-3.5" /></button></span>
       </div>
-    </button>
+    </article>
   );
 }
 
@@ -330,27 +333,7 @@ export default function Home() {
       toast.message("Add a due date before exporting this promise to your calendar.");
       return;
     }
-    const escapeIcsText = (value: string) => value.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
-    const formatIcsDate = (value: Date) => value.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
-    const start = new Date(`${item.due}T12:00:00`);
-    const end = new Date(start.getTime() + 30 * 60 * 1000);
-    const description = `PromiseOS shared commitment\\nPromisor: ${item.promisor}\\nRecipient: ${item.recipient}\\nCompletion: ${item.completion}\\nContext: ${item.context}`;
-    const calendar = [
-      "BEGIN:VCALENDAR",
-      "VERSION:2.0",
-      "PRODID:-//PromiseOS//Private Commitment Export//EN",
-      "CALSCALE:GREGORIAN",
-      "BEGIN:VEVENT",
-      `UID:promiseos-${item.id}-${Date.now()}@local`,
-      `DTSTAMP:${formatIcsDate(new Date())}`,
-      `DTSTART:${formatIcsDate(start)}`,
-      `DTEND:${formatIcsDate(end)}`,
-      `SUMMARY:${escapeIcsText(`Promise: ${item.title}`)}`,
-      `DESCRIPTION:${escapeIcsText(description)}`,
-      "STATUS:CONFIRMED",
-      "END:VEVENT",
-      "END:VCALENDAR",
-    ].join("\r\n");
+    const calendar = buildPromiseCalendar(item);
     const blob = new Blob([calendar], { type: "text/calendar;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");

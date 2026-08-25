@@ -17,7 +17,7 @@
 - [x] Add standards-compliant calendar export for individual promises, including title, due date, participants, completion condition, and a privacy-respecting description.
 - [x] Add a restrained success micro-interaction when a shared promise is accepted or a renegotiation is confirmed, with reduced-motion support.
 - [x] Verify the GitHub connection, create a private PromiseOS repository under the user’s available account, and configure the `github` remote for future synchronization.
-- [ ] Test and visually verify calendar export and confirmation feedback on desktop and mobile.
+- [x] Test and visually verify calendar export and confirmation feedback on desktop and mobile.
 - [ ] Save a new checkpoint and deliver the enhanced PromiseOS app.
 
 ## Known bugs
@@ -28,3 +28,4 @@
 - [x] Add the acknowledgment count to the visible private Reliability Ledger summary.
 - [x] Confirm the repaired reminder-preferences flow produces no fresh browser-console query errors.
 - [x] Remove the default compact-detail bar so the primary workspace begins with one intentional next action rather than an unrequested open detail.
+- [x] Repair the nested interactive elements in Promise Cards so calendar export and detail opening remain valid, accessible controls.
