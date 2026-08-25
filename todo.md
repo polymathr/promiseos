@@ -18,7 +18,7 @@
 - [x] Add a restrained success micro-interaction when a shared promise is accepted or a renegotiation is confirmed, with reduced-motion support.
 - [x] Verify the GitHub connection, create a private PromiseOS repository under the user’s available account, and configure the `github` remote for future synchronization.
 - [x] Test and visually verify calendar export and confirmation feedback on desktop and mobile.
-- [ ] Save a new checkpoint and deliver the enhanced PromiseOS app.
+- [x] Save a new checkpoint and deliver the enhanced PromiseOS app.
 
 ## Known bugs
 
