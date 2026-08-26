@@ -12,6 +12,7 @@ import {
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
 import { nextPromiseState, PromiseEventAction, PromiseState } from "./promiseState";
+import { calculatePrivateReliabilityScore } from "./reliability";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -226,13 +227,13 @@ export async function deleteAccountForUser(userId: number) {
 
 export async function getReliabilitySummaryForUser(userId: number, otherUserId?: number) {
   const db = await getDb();
-  if (!db) return { completed: 0, renegotiated: 0, blocked: 0, open: 0, acknowledged: 0 };
+  if (!db) return { completed: 0, renegotiated: 0, blocked: 0, open: 0, acknowledged: 0, disputed: 0 };
   let sharedPromiseIds = (await db.select({ promiseId: promiseParticipants.promiseId }).from(promiseParticipants).where(eq(promiseParticipants.userId, userId))).map(row => row.promiseId);
   if (otherUserId) {
     const otherIds = (await db.select({ promiseId: promiseParticipants.promiseId }).from(promiseParticipants).where(eq(promiseParticipants.userId, otherUserId))).map(row => row.promiseId);
     sharedPromiseIds = sharedPromiseIds.filter(id => otherIds.includes(id));
   }
-  if (!sharedPromiseIds.length) return { completed: 0, renegotiated: 0, blocked: 0, open: 0, acknowledged: 0 };
+  if (!sharedPromiseIds.length) return { completed: 0, renegotiated: 0, blocked: 0, open: 0, acknowledged: 0, disputed: 0 };
   const rows = await db.select({ status: promises.status, count: sql<number>`count(*)` }).from(promises).where(inArray(promises.id, sharedPromiseIds)).groupBy(promises.status);
   const get = (status: string) => Number(rows.find(row => row.status === status)?.count ?? 0);
   return {
@@ -241,7 +242,14 @@ export async function getReliabilitySummaryForUser(userId: number, otherUserId?:
     blocked: get("blocked"),
     open: get("active") + get("at_risk") + get("proposed"),
     acknowledged: get("acknowledged"),
+    disputed: get("disputed"),
   };
+}
+
+export async function getPersonalReliabilityDashboardForUser(userId: number) {
+  const summary = await getReliabilitySummaryForUser(userId);
+  const score = calculatePrivateReliabilityScore(summary);
+  return { ...summary, ...score };
 }
 
 export async function getRelationshipSummariesForUser(userId: number) {

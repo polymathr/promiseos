@@ -8,6 +8,7 @@ const dbMocks = vi.hoisted(() => ({
   exportPromisesForUser: vi.fn(),
   getGuestInvite: vi.fn(),
   getPromiseDetailForUser: vi.fn(),
+  getPersonalReliabilityDashboardForUser: vi.fn(),
   getRelationshipSummariesForUser: vi.fn(),
   getReliabilitySummaryForUser: vi.fn(),
   getReminderPreferencesForUser: vi.fn(),
@@ -96,6 +97,15 @@ describe("PromiseOS protected procedures", () => {
 
     expect(dbMocks.getReliabilitySummaryForUser).toHaveBeenCalledWith(42, 17);
     expect(result).toEqual({ completed: 3, renegotiated: 1, blocked: 0, open: 2, acknowledged: 1 });
+  });
+
+  it("returns a personal reliability dashboard only for the authenticated user", async () => {
+    const dashboard = { score: 82, label: "Steady follow-through", evidenceCount: 6, completed: 4, acknowledged: 1, renegotiated: 1, blocked: 0, disputed: 0, explanation: "private" };
+    dbMocks.getPersonalReliabilityDashboardForUser.mockResolvedValueOnce(dashboard);
+    const caller = appRouter.createCaller(context());
+
+    await expect(caller.promise.personalReliability()).resolves.toEqual(dashboard);
+    expect(dbMocks.getPersonalReliabilityDashboardForUser).toHaveBeenCalledWith(42);
   });
 
   it("returns private relationship groups only for the authenticated user", async () => {

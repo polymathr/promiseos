@@ -13,7 +13,16 @@ import { Link, useRoute } from "wouter";
 export default function PromiseDetail() {
   const [, params] = useRoute("/promises/:id"); const promiseId = Number(params?.id); const { user, isAuthenticated } = useAuth();
   const detail = trpc.promise.get.useQuery({ promiseId }, { enabled: isAuthenticated && Number.isFinite(promiseId) }); const utils = trpc.useUtils();
-  const respond = trpc.promise.respond.useMutation({ onSuccess: () => { detail.refetch(); utils.promise.list.invalidate(); } }); const event = trpc.promise.addEvent.useMutation({ onSuccess: () => { detail.refetch(); utils.promise.list.invalidate(); } });
+  const optimisticallySetStatus = async (status: "active" | "renegotiation_proposed" | "proposed" | "renegotiated") => {
+    await utils.promise.list.cancel(); await utils.promise.get.cancel({ promiseId });
+    const previousList = utils.promise.list.getData(undefined); const previousDetail = utils.promise.get.getData({ promiseId });
+    utils.promise.list.setData(undefined, old => old?.map(row => row.promise.id === promiseId ? { ...row, promise: { ...row.promise, status } } : row));
+    utils.promise.get.setData({ promiseId }, old => old ? { ...old, promise: { ...old.promise, status } } : old);
+    return { previousList, previousDetail };
+  };
+  const rollback = (context?: { previousList: ReturnType<typeof utils.promise.list.getData>; previousDetail: ReturnType<typeof utils.promise.get.getData> }) => { if (!context) return; utils.promise.list.setData(undefined, context.previousList); utils.promise.get.setData({ promiseId }, context.previousDetail); };
+  const refresh = async () => { await Promise.all([utils.promise.list.invalidate(), utils.promise.get.invalidate({ promiseId }), utils.promise.reliability.invalidate(), utils.promise.personalReliability.invalidate(), utils.promise.relationships.invalidate()]); };
+  const respond = trpc.promise.respond.useMutation({ onMutate: input => optimisticallySetStatus(input.response === "accepted" ? "active" : input.response === "counterproposed" ? "renegotiation_proposed" : "proposed"), onError: (_error, _input, context) => rollback(context), onSettled: refresh }); const event = trpc.promise.addEvent.useMutation({ onMutate: input => optimisticallySetStatus(input.type === "renegotiation_accepted" ? "renegotiated" : "active"), onError: (_error, _input, context) => rollback(context), onSettled: refresh });
   const [mode, setMode] = useState<"counter" | "clarify" | null>(null); const [proposedDate, setProposedDate] = useState(""); const [detailText, setDetailText] = useState(""); const [confirmed, setConfirmed] = useState(false);
   if (!isAuthenticated) return <AppShell><p className="text-sm text-[#66737b]">Sign in to view this private promise.</p></AppShell>; if (detail.isLoading) return <AppShell><p className="text-sm text-[#66737b]">Loading promise…</p></AppShell>; if (!detail.data) return <AppShell><p className="text-sm text-[#66737b]">This promise is unavailable.</p></AppShell>;
   const { promise, participants, events, amendments } = detail.data; const me = participants.find(participant => participant.userId === user?.id); const isRecipient = me?.role === "recipient";

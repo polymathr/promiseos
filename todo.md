@@ -37,6 +37,10 @@
 ## Live-data follow-up
 
 - [x] Include participant identity and confirmation data in the live promise detail response, and verify the loaded detail happy path against an existing record.
+- [x] Add optimistic cache updates with rollback and refetch for accepting, counterproposing, and clarifying a promise.
+- [x] Add a signed-in-only private personal reliability dashboard that transparently summarizes completed, acknowledged, renegotiated, blocked, and disputed commitments without public ranking or sharing.
+- [x] Add server-side reliability-dashboard data and unit coverage for the transparent score calculation.
+- [x] Verify optimistic interaction feedback, dashboard semantics, mobile responsiveness, type checks, tests, checkpointing, and GitHub synchronization.
 
 ## Known bugs
 
